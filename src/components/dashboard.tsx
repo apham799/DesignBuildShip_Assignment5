@@ -3,7 +3,7 @@
 import { ConditionCard } from "@/components/condition-card";
 import { FollowPicker } from "@/components/follow-picker";
 import { FreshnessBanner } from "@/components/freshness-banner";
-import { Alert, Button, ButtonLink, Card, LoadingCard, Toast } from "@/components/ui";
+import { Alert, Button, ButtonLink, Card, LoadingCard } from "@/components/ui";
 import { freshness } from "@/lib/freshness";
 import { useLiveConditions, useNow } from "@/lib/use-live-conditions";
 
@@ -76,11 +76,17 @@ export function Dashboard() {
       <FreshnessBanner freshness={f} status={live.status} latestRun={live.latestRun} lastGoodRun={live.lastGoodRun} readingAt={readingAt} now={now} />
 
       {live.followError && <Alert tone="error" title={live.followError} onDismiss={live.clearFollowError} />}
-      <Toast
-        message={live.imported ? `Added ${live.imported} ${live.imported === 1 ? "place" : "places"} you followed as a guest to your account.` : null}
-        onDone={live.clearImported}
-        duration={5000}
-      />
+      {live.imported && (
+        <div role="status">
+          <Alert
+            tone="success"
+            title={`Added the ${live.imported} ${live.imported === 1 ? "place" : "places"} you followed as a guest to your account`}
+            onDismiss={live.clearImported}
+          >
+            They&apos;re saved now, so they&apos;ll be here next time you sign in, on any device.
+          </Alert>
+        </div>
+      )}
 
       {!live.loaded ? (
         <LoadingCard label="Loading the places you follow…" />

@@ -25,3 +25,28 @@ export function clearGuestFollows() {
     sessionStorage.removeItem(KEY);
   } catch {}
 }
+
+// How many guest follows were just copied into the account. Kept in the tab until the
+// person dismisses the message, so a remount during the sign-in redirect can't lose it.
+const NOTICE_KEY = "can-i-play:v1:imported-notice";
+
+export function writeImportedNotice(count: number) {
+  try {
+    sessionStorage.setItem(NOTICE_KEY, String(count));
+  } catch {}
+}
+
+export function readImportedNotice(): number | null {
+  try {
+    const n = Number(sessionStorage.getItem(NOTICE_KEY));
+    return n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearImportedNotice() {
+  try {
+    sessionStorage.removeItem(NOTICE_KEY);
+  } catch {}
+}

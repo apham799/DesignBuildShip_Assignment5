@@ -1,3 +1,9 @@
+"use client";
+
+// A client component on purpose: the layout (and so the header) is rendered once and
+// kept across in-app navigation, so a server-rendered header would keep showing
+// "Sign in" after Clerk signs you in and sends you back. Here, Show re-renders as
+// soon as the sign-in state changes.
 import { Show, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { ButtonLink } from "@/components/ui";

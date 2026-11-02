@@ -3,7 +3,7 @@
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { clearGuestFollows, readGuestFollows, writeGuestFollows } from "./guest-follows";
+import { clearGuestFollows, clearImportedNotice, readGuestFollows, readImportedNotice, writeGuestFollows, writeImportedNotice } from "./guest-follows";
 import type { Condition, Location, WorkerRun } from "./types";
 
 // Everything the dashboard shows, kept live, for guests and signed-in golfers.
@@ -56,7 +56,10 @@ export function useLiveConditions() {
   const [followError, setFollowError] = useState<string | null>(null);
   // How many guest follows were just copied into the account, for a confirmation.
   const [imported, setImported] = useState<number | null>(null);
-  const clearImported = useCallback(() => setImported(null), []);
+  const clearImported = useCallback(() => {
+    clearImportedNotice();
+    setImported(null);
+  }, []);
   const clearFollowError = useCallback(() => setFollowError(null), []);
 
   // One client per person (or one for guests), so nothing carries over after a
@@ -95,11 +98,14 @@ export function useLiveConditions() {
       return;
     }
     clearGuestFollows();
-    setImported(ids.length);
+    writeImportedNotice(ids.length);
   }, [db]);
 
   const load = useCallback(async () => {
-    if (userId) await importGuestFollows();
+    if (userId) {
+      await importGuestFollows();
+      setImported(readImportedNotice());
+    }
     const followsQuery = userId
       ? db.from("follows").select("location_id")
       : Promise.resolve({ data: readGuestFollows().map((location_id) => ({ location_id })), error: null });
