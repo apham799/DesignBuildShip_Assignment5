@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test supabase/functions/poll-conditions/worker.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.23",
@@ -24,5 +25,6 @@
     "eslint-config-next": "16.4.4",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "type": "module"
 }

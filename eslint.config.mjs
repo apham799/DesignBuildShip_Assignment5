@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The worker is Deno code (npm: imports), excluded from tsconfig too.
+    "supabase/**",
   ]),
 ]);
 
