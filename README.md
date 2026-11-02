@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Can I Play Right Now?
 
-## Getting Started
+Live golf conditions at Chicago's public courses and ranges. A worker on Supabase checks the weather every 2 minutes and saves only what changed. Each signed-in golfer follows the places they play and watches a live verdict update on its own: go play, playable with a caveat, or not now.
 
-First, run the development server:
+Design, Build, Ship (MPCS 51238), Assignment 5: Live Data System. It carries forward the golf app from Assignments 3–4 (Bucket List).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Live app:** _Vercel URL goes here_
+- **Data-flow chart** (made before the code): [`docs/data-flow.md`](docs/data-flow.md)
+
+## How it works
+
+```
+Open-Meteo ──every 2 min──▶ Worker ──only what changed──▶ Postgres ──Realtime──▶ Page
+(no key)                   Edge Function,                 conditions,             Next.js on Vercel,
+                           Supabase Cron                  worker_runs, follows    Clerk sign-in
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Source**: [Open-Meteo](https://open-meteo.com/) current conditions for 8 locations in one batched request. It publishes a new reading every 15 minutes.
+2. **Worker**: `supabase/functions/poll-conditions`. Supabase Cron calls it every 2 minutes. It validates the response, compares it with what's stored, and upserts only the rows that differ. Every run adds a row to `worker_runs` (when it ran, whether it worked, how many rows changed), including failed runs.
+3. **Database**: `locations` (seeded), `conditions` (one row per location), `worker_runs`, and `follows`. RLS is on for every table, and follows are visible only to their owner.
+4. **Page**: subscribes to `conditions` and `worker_runs` over Supabase Realtime with the Clerk session token, so it updates without a refresh.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Freshness
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The page shows two clocks: when the worker last checked, and how old the reading is. It's in one of four states:
 
-## Learn More
+| State | When |
+|---|---|
+| Loading | The first query hasn't returned yet |
+| Fresh | The worker checked in the last 6 min (3 runs) and the reading is under 35 min old |
+| Stale | Either clock is older than that. A timer on the page catches this even when no events arrive |
+| Down | The worker's latest run failed. The error is shown, along with when the last good check was |
 
-To learn more about Next.js, take a look at the following resources:
+## Tests
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+npm test
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Worker** (`worker.test.ts`): runs the real worker on two Open-Meteo responses saved on Nov 1, 2026, at the 23:30 and 23:45 readings, against a fake database. It checks:
+  - the first run saves all 8 rows, with the right values and UTC times
+  - the same reading again writes **nothing** but still records the run
+  - the next reading updates the changed rows
+  - a one-location change upserts exactly one row
+  - an outage, a renamed field, reordered locations, a missing location, or a failed write all record a failed run and save nothing
+- **Freshness** (`freshness.test.ts`): the four page states at their boundaries.
 
-## Deploy on Vercel
+## Run locally
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Create `.env.local` with:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+```
+
+Then run `npm install` and `npm run dev`. The Supabase secret key is never in this file. Only the worker uses it, and Supabase provides it on its own servers.
+
+## Stack
+
+Next.js 16, Tailwind CSS 4, Clerk, Supabase (Postgres, Realtime, Edge Functions, Cron) and Open-Meteo. The worker is Deno code, so `supabase/` is excluded from `tsconfig.json` and ESLint.
