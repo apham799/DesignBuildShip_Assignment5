@@ -63,7 +63,7 @@ flowchart LR
 
 ## What would break if one part changed
 
-- **Open-Meteo reorders or drops a location**: the response has no ids, only order, so readings would land on the wrong course. The worker checks the count and rounded coordinates before writing.
+- **Open-Meteo reorders or drops a location**: the response has no ids, only order, so readings would land on the wrong course. The worker checks the count, and that each returned coordinate is within 0.1° of the one requested, before writing. Open-Meteo snaps coordinates to its grid, by up to 0.033° for these locations.
 - **Open-Meteo renames a field** (e.g. `wind_gusts_10m`): the parsed value is `undefined`. The worker validates every field, so the run is recorded with `ok = false` and the page shows **Down** instead of blanks.
 - **Worker rewrites every row each run**: Realtime would push about 8 messages to every open page every 2 minutes, even when nothing changed, which uses up the free quota. Saving only changed rows prevents that.
 - **A table is left out of the Realtime publication, or its RLS read policy is missing**: the page silently gets nothing. Both are set in migrations.
