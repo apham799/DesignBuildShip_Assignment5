@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test supabase/functions/poll-conditions/worker.test.ts"
+    "test": "node --test supabase/functions/poll-conditions/worker.test.ts src/lib/freshness.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.23",

@@ -1,26 +1,101 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  Clubhouse, revised (Assignment 2 → 3).
+  Feedback applied: white surfaces instead of tan everywhere, two typefaces with
+  four text roles, darker muted text, and red reserved for errors.
+  Contrast ratios are on white; see README "Accessibility" for the full table.
+*/
+@theme {
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-franklin), system-ui, sans-serif;
+
+  /* Surfaces */
+  --color-page: #ffffff;
+  --color-surface: #ffffff;
+  --color-cream: #f8f2e4; /* accents only: nav, focus card, scorecard header */
+  --color-cream-deep: #efe5cf;
+  --color-rule: #e6dcc4; /* dividers, never text */
+  --color-edge: #7a6e56; /* input borders, 5.0:1 */
+
+  /* Text */
+  --color-ink: #2b2a28; /* 14.3:1 */
+  --color-muted: #4f4a41; /* 8.8:1 */
+
+  /* Brand */
+  --color-green: #1f4d3a; /* 9.6:1, primary actions */
+  --color-green-deep: #16362a;
+  --color-on-green: #ffffff;
+  --color-brass: #b8893b; /* decoration only, never text */
+  --color-focus: #3e6e8e; /* focus ring, 5.5:1 */
+
+  /* Status. Red is errors only, always with an icon. */
+  --color-error: #8f2d23; /* 8.2:1 */
+  --color-error-tint: #f7e4e0;
+  --color-success: #2f6b4f; /* 6.3:1 */
+  --color-success-tint: #e6efe2;
+  --color-warning: #7a5714;
+  --color-warning-tint: #f6ecd2;
+  --color-disabled: #8e877a;
+  --color-disabled-bg: #f1ede4;
+
+  /* The drop shadows from Assignment 2, kept by request */
+  --shadow-card: 0 1px 2px rgba(43, 42, 40, 0.12), 0 8px 20px -12px rgba(31, 77, 58, 0.45);
+  --shadow-lift: 0 2px 4px rgba(43, 42, 40, 0.12), 0 16px 28px -14px rgba(31, 77, 58, 0.55);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* A small lift-in for celebrations (skipped with reduced motion via motion-safe:).
+   Movement only: fading opacity would drop text below 4.5:1 contrast while it plays. */
+@keyframes celebrate {
+  from {
+    transform: translateY(-10px) scale(0.97);
+  }
+  60% {
+    transform: translateY(2px) scale(1.01);
+  }
+  to {
+    transform: none;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* The four text roles. Use these instead of ad-hoc font sizes. */
+@utility text-display {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+@utility text-heading {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+@utility text-body {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+@utility text-label {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+@layer base {
+  html {
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+  body {
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 }
