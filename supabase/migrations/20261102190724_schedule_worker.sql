@@ -1,14 +1,10 @@
 -- Supabase Cron calls the worker every 2 minutes (see docs/data-flow.md → Cadence).
 --
--- pg_cron runs the schedule inside Postgres; pg_net sends the HTTP request.
 -- The project URL and the secret key come from Vault at run time, so neither is in
--- this file or the repo. Before this job can succeed, two Vault secrets must exist:
+-- this file or the repo. Two Vault secrets must exist (added by hand, not by migration):
 --   project_url  https://<project-ref>.supabase.co
---   secret_key   the project's secret key (sb_secret_…), added by hand in the SQL editor
+--   secret_key   the project's default secret key (sb_secret_…)
 -- The worker (withSupabase({ auth: 'secret' })) accepts the key on the apikey header.
-
-create extension if not exists pg_cron;
-create extension if not exists pg_net;
 
 select cron.schedule(
   'poll-conditions',
