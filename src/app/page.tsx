@@ -1,19 +1,13 @@
-import { Show } from "@clerk/nextjs";
 import { Suspense } from "react";
 import { Dashboard } from "@/components/dashboard";
-import { Landing } from "@/components/landing";
 import { LoadingCard } from "@/components/ui";
 
-// Signed out: what this is. Signed in: your live conditions.
+// One live page for everyone. Signed out, it runs as a guest trial (follows kept
+// in this tab); signed in, follows are saved to the account with RLS.
 export default function Home() {
   return (
     <Suspense fallback={<LoadingCard label="Loading…" />}>
-      <Show when="signed-out">
-        <Landing />
-      </Show>
-      <Show when="signed-in">
-        <Dashboard />
-      </Show>
+      <Dashboard />
     </Suspense>
   );
 }

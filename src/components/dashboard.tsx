@@ -3,12 +3,35 @@
 import { ConditionCard } from "@/components/condition-card";
 import { FollowPicker } from "@/components/follow-picker";
 import { FreshnessBanner } from "@/components/freshness-banner";
-import { Alert, Button, Card, LoadingCard } from "@/components/ui";
+import { Alert, Button, ButtonLink, Card, LoadingCard, Toast } from "@/components/ui";
 import { freshness } from "@/lib/freshness";
 import { useLiveConditions, useNow } from "@/lib/use-live-conditions";
 
-// The signed-in page: how fresh things are, the places you follow (live), and
-// where to change what you follow.
+// The page for everyone: how fresh things are, the places you follow (live), and
+// where to change what you follow. Guests get the same live page as a trial, with
+// their follows kept in this tab and a nudge to make an account to keep them.
+
+function GuestNudge() {
+  return (
+    <Card tone="cream" as="section" labelledBy="guest-title" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <h2 id="guest-title" className="text-heading">
+          You&apos;re trying it as a guest
+        </h2>
+        <p className="max-w-2xl text-body">
+          Everything here is live. The places you follow are saved in this tab only. Create a free account to keep them; they come with you.
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-wrap gap-3">
+        <ButtonLink href="/sign-up">Create a free account</ButtonLink>
+        <ButtonLink href="/sign-in" variant="secondary">
+          Sign in
+        </ButtonLink>
+      </div>
+    </Card>
+  );
+}
+
 export function Dashboard() {
   const live = useLiveConditions();
   const now = useNow();
@@ -48,9 +71,16 @@ export function Dashboard() {
         </p>
       </div>
 
+      {live.guest && <GuestNudge />}
+
       <FreshnessBanner freshness={f} status={live.status} latestRun={live.latestRun} lastGoodRun={live.lastGoodRun} readingAt={readingAt} now={now} />
 
       {live.followError && <Alert tone="error" title={live.followError} onDismiss={live.clearFollowError} />}
+      <Toast
+        message={live.imported ? `Added ${live.imported} ${live.imported === 1 ? "place" : "places"} you followed as a guest to your account.` : null}
+        onDone={live.clearImported}
+        duration={5000}
+      />
 
       {!live.loaded ? (
         <LoadingCard label="Loading the places you follow…" />
@@ -60,7 +90,10 @@ export function Dashboard() {
             <h2 id="pick-title" className="text-heading">
               Pick the places you play
             </h2>
-            <p className="text-body">Follow a course or range and its conditions show up here, live. You can change this any time.</p>
+            <p className="text-body">
+              Follow a course or range and its conditions show up here, live. You can change this any time
+              {live.guest ? "; as a guest, your picks stay in this tab." : "."}
+            </p>
           </div>
           <FollowPicker locations={live.locations} following={live.following} onToggle={live.toggleFollow} />
         </Card>

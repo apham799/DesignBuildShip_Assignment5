@@ -15,7 +15,8 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 ## Hard constraints
 - Keys live in `.env.local`, Vercel env vars and Supabase Vault, never in code or commits. The agent may not read `.env*` (deny rule in `.claude/settings.json`). The student creates `.env.local` and the Vault secret by hand.
 - The secret key is used **only** by the worker, on Supabase's servers (`withSupabase({ auth: 'secret' })`). It never goes in the browser, a `NEXT_PUBLIC_` variable, or the repo.
-- The page talks to Supabase with the Clerk session token, so RLS applies to every query and every Realtime event.
+- Signed in, the page talks to Supabase with the Clerk session token, so RLS applies to every query and every Realtime event.
+- **Guest trial** (as in Bucket List): signed out, the same live page runs with the publishable key only (`anon`). Guests can read the public tables. Their follows live in `sessionStorage` (`src/lib/guest-follows.ts`, this tab only) and are upserted into `follows` on sign-in. `anon` never gets access to `follows`.
 - Schema changes are written as migrations in `supabase/migrations/`, never as one-off edits in the dashboard.
 - `supabase` is in the `tsconfig.json` `exclude` list. The worker is Deno code, and the Next.js build must not type-check it.
 - **Save only what changed.** The worker compares each new reading to the stored row and upserts only the rows that differ. Realtime bills every change sent to every open page.
@@ -26,20 +27,20 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 ## Data model (all in `public`, all with RLS)
 
 **`locations`**: reference data, seeded by migration. The worker reads coordinates from here.
-`id text pk`, `name`, `kind ('course' | 'range')`, `area`, `lat`, `lon`, `sort int`. Everyone signed in can read it. Nobody writes to it from the app.
+`id text pk`, `name`, `kind ('course' | 'range')`, `area`, `lat`, `lon`, `sort int`. Anyone can read it, guests included. Nobody writes to it from the app.
 
 **`conditions`**: the latest reading, one row per location. Only the worker writes to it.
-`location_id pk → locations`, `observed_at` (Open-Meteo's 15-min slot), `temp_f`, `feels_like_f`, `precip_in`, `weather_code`, `wind_mph`, `gust_mph`, `wind_dir_deg`, `is_day`, `sunset`, `updated_at`. Everyone signed in can read it. It's in the Realtime publication.
+`location_id pk → locations`, `observed_at` (Open-Meteo's 15-min slot), `temp_f`, `feels_like_f`, `precip_in`, `weather_code`, `wind_mph`, `gust_mph`, `wind_dir_deg`, `is_day`, `sunset`, `updated_at`. Anyone can read it, guests included. It's in the Realtime publication.
 
 **`worker_runs`**: one row per run, whether it worked or failed.
-`id`, `ran_at`, `ok`, `rows_changed`, `source_time`, `error`, `duration_ms`. Everyone signed in can read it. It's in the Realtime publication, so the page can see that the worker is down.
+`id`, `ran_at`, `ok`, `rows_changed`, `source_time`, `error`, `duration_ms`. Anyone can read it, guests included. It's in the Realtime publication, so the page can see that the worker is down.
 
 **`follows`**: what each person follows.
 `user_id text default (auth.jwt() ->> 'sub')`, `location_id → locations`, `created_at`, pk `(user_id, location_id)`. RLS: select, insert and delete only where `(select auth.jwt() ->> 'sub') = user_id`.
 
 ## Realtime checklist (all three or the page silently gets nothing)
 1. The table is in the `supabase_realtime` publication.
-2. `grant select … to authenticated`. Supabase's default privileges grant `authenticated` **everything** on new public tables, so `revoke all` first, then grant only what's needed (see `*_tighten_grants.sql`).
+2. `grant select … to authenticated` (and `anon` for the public tables). Supabase's default privileges grant `authenticated` **everything** on new public tables, so `revoke all` first, then grant only what's needed (see `*_tighten_grants.sql`).
 3. An RLS `select` policy lets the signed-in person read the row.
 
 ## Freshness states (see `docs/data-flow.md`)

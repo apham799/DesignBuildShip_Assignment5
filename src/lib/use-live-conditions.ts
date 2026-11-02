@@ -3,14 +3,18 @@
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { clearGuestFollows, readGuestFollows, writeGuestFollows } from "./guest-follows";
 import type { Condition, Location, WorkerRun } from "./types";
 
-// Everything the dashboard shows, kept live.
+// Everything the dashboard shows, kept live, for guests and signed-in golfers.
 //
-// Every request and the Realtime socket carry the signed-in person's Clerk session
-// token, so Supabase applies row-level security: follows come back for this person
-// only, and Realtime only sends rows they're allowed to read. The app never sends
-// user_id; the database fills it in from the token.
+// Signed in: every request and the Realtime socket carry the Clerk session token,
+// so Supabase applies row-level security: follows come back for this person only.
+// The app never sends user_id; the database fills it in from the token.
+//
+// Guest: the publishable key only (the anon role), which can read the public live
+// data and nothing else. Follows live in this tab (guest-follows.ts) and are copied
+// into the account on sign-in.
 //
 // Order matters: subscribe first, then load. Each time the channel (re)connects,
 // we load a fresh snapshot, so nothing that changed while we were disconnected
@@ -44,22 +48,27 @@ const EMPTY: LiveState = {
 const HIGHLIGHT_MS = 4000;
 
 export function useLiveConditions() {
-  const { userId } = useAuth();
+  const { isLoaded, userId } = useAuth();
   const clerk = useClerk();
+  const guest = isLoaded && !userId;
   const [state, setState] = useState<LiveState>(EMPTY);
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [followError, setFollowError] = useState<string | null>(null);
+  // How many guest follows were just copied into the account, for a confirmation.
+  const [imported, setImported] = useState<number | null>(null);
+  const clearImported = useCallback(() => setImported(null), []);
+  const clearFollowError = useCallback(() => setFollowError(null), []);
 
-  // One client per signed-in person, so nothing carries over after a switch. It asks
-  // Clerk for the current session token on every request and Realtime heartbeat;
-  // Clerk refreshes the short-lived token itself.
-  const db: SupabaseClient = useMemo(
-    () =>
-      createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
-        accessToken: async () => (userId ? ((await clerk.session?.getToken()) ?? null) : null),
-      }),
-    [clerk, userId],
-  );
+  // One client per person (or one for guests), so nothing carries over after a
+  // switch. Signed in, it asks Clerk for the current session token on every request
+  // and Realtime heartbeat; Clerk refreshes the short-lived token itself.
+  const db: SupabaseClient = useMemo(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+    return userId
+      ? createClient(url, key, { accessToken: async () => (await clerk.session?.getToken()) ?? null })
+      : createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  }, [clerk, userId]);
 
   const flash = useCallback((ids: string[]) => {
     setState((s) => ({ ...s, justChanged: new Set([...s.justChanged, ...ids]) }));
@@ -72,11 +81,32 @@ export function useLiveConditions() {
     }, HIGHLIGHT_MS);
   }, []);
 
+  // Signed in: first copy any follows made as a guest in this tab into the account.
+  // Already-followed places are skipped, not duplicated. If the copy fails, the
+  // guest list is kept and tried again on the next load.
+  const importGuestFollows = useCallback(async () => {
+    const ids = readGuestFollows();
+    if (!ids.length) return;
+    const { error } = await db
+      .from("follows")
+      .upsert(ids.map((location_id) => ({ location_id })), { onConflict: "user_id,location_id", ignoreDuplicates: true });
+    if (error) {
+      setFollowError("Couldn't add the places you followed as a guest to your account. We'll try again.");
+      return;
+    }
+    clearGuestFollows();
+    setImported(ids.length);
+  }, [db]);
+
   const load = useCallback(async () => {
+    if (userId) await importGuestFollows();
+    const followsQuery = userId
+      ? db.from("follows").select("location_id")
+      : Promise.resolve({ data: readGuestFollows().map((location_id) => ({ location_id })), error: null });
     const [locations, conditions, follows, latest, lastGood] = await Promise.all([
       db.from("locations").select("id, name, kind, area, sort").order("sort"),
       db.from("conditions").select("*"),
-      db.from("follows").select("location_id"),
+      followsQuery,
       db.from("worker_runs").select("*").order("ran_at", { ascending: false }).limit(1).maybeSingle(),
       db.from("worker_runs").select("*").eq("ok", true).order("ran_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
@@ -95,10 +125,10 @@ export function useLiveConditions() {
       latestRun: latest.data as WorkerRun | null,
       lastGoodRun: lastGood.data as WorkerRun | null,
     }));
-  }, [db]);
+  }, [db, userId, importGuestFollows]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!isLoaded) return;
     let cancelled = false;
 
     const channel = db
@@ -129,7 +159,7 @@ export function useLiveConditions() {
       cancelled = true;
       db.removeChannel(channel);
     };
-  }, [db, userId, load, flash]);
+  }, [db, isLoaded, load, flash]);
 
   // Follow or unfollow, shown at once and undone if the save fails.
   const toggleFollow = useCallback(
@@ -145,6 +175,14 @@ export function useLiveConditions() {
         });
 
       apply(!wasFollowing);
+      if (!userId) {
+        // Guest: this tab only.
+        const next = new Set(state.following);
+        if (wasFollowing) next.delete(locationId);
+        else next.add(locationId);
+        writeGuestFollows(next);
+        return;
+      }
       const { error } = wasFollowing
         ? await db.from("follows").delete().eq("location_id", locationId)
         : await db.from("follows").insert({ location_id: locationId });
@@ -154,10 +192,20 @@ export function useLiveConditions() {
         setFollowError(`Couldn't ${wasFollowing ? "unfollow" : "follow"} ${name}. Check your connection and try again.`);
       }
     },
-    [db, state.following, state.locations],
+    [db, userId, state.following, state.locations],
   );
 
-  return { ...state, status, toggleFollow, followError, clearFollowError: () => setFollowError(null), retry: load };
+  return {
+    ...state,
+    guest,
+    status,
+    toggleFollow,
+    followError,
+    clearFollowError,
+    imported,
+    clearImported,
+    retry: load,
+  };
 }
 
 // Re-renders on an interval, so "3 min ago" counts up and the page turns stale on

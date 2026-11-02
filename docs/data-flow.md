@@ -21,8 +21,10 @@ flowchart LR
     end
 
     subgraph Vercel
-        PAGE["Next.js page<br/>Clerk sign-in"]
+        PAGE["Next.js page<br/>Clerk sign-in, or guest trial"]
     end
+
+    TAB[("guest's follows<br/>sessionStorage, this tab only")]
 
     CRON -- "HTTP POST" --> W
     W -- "read coordinates" --> LOC
@@ -34,6 +36,8 @@ flowchart LR
     RUNS -- "INSERT events" --> RT
     RT -- "websocket push<br/>(only rows RLS lets the user read)" --> PAGE
     PAGE -- "follow / unfollow<br/>(Clerk token → RLS)" --> FOL
+    PAGE -- "guest follow / unfollow" --> TAB
+    TAB -. "copied into follows on sign-in" .-> FOL
     PAGE -- "initial load" --> CON
 ```
 
@@ -48,6 +52,9 @@ flowchart LR
 | Worker → `worker_runs` | One row each run, whether it worked or failed | `ran_at, ok, rows_changed, source_time, error, duration_ms` |
 | Realtime → Page | Each changed `conditions` row and each new `worker_runs` row | Postgres change payload |
 | Page → `follows` | Which locations this person follows | `user_id` filled from the Clerk token, never sent by the app |
+| Page → tab (guest) | A guest's follows, in `sessionStorage` | `["jackson-park", …]`. On sign-in they're upserted into `follows` (duplicates skipped), then cleared |
+
+**Who can read what.** `locations`, `conditions` and `worker_runs` hold only public weather and worker health, so guests (the `anon` role, publishable key) can read them, including over Realtime. `follows` is signed-in only, with each person limited to their own rows. A guest's requests to it get `401 permission denied`.
 
 ## Freshness (two clocks)
 
