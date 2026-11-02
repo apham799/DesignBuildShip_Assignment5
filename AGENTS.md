@@ -39,7 +39,7 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 
 ## Realtime checklist (all three or the page silently gets nothing)
 1. The table is in the `supabase_realtime` publication.
-2. `grant select … to authenticated`.
+2. `grant select … to authenticated`. Supabase's default privileges grant `authenticated` **everything** on new public tables, so `revoke all` first, then grant only what's needed (see `*_tighten_grants.sql`).
 3. An RLS `select` policy lets the signed-in person read the row.
 
 ## Freshness states (see `docs/data-flow.md`)
