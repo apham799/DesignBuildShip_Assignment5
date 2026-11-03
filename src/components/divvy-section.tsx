@@ -92,8 +92,9 @@ export function DivvySection({ locationName, nearby, status, justChanged, freshn
           anyChanged && "bg-cream ring-2 ring-brass/60",
         )}
       >
-        <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-green transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 3.5 L10.5 8 L6 12.5" />
+        {/* A down chevron, the usual sign for "this opens below". */}
+        <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-green" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3.5 6 L8 10.5 L12.5 6" />
         </svg>
         <DockIcon />
         <span className="font-semibold text-ink">
