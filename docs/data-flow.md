@@ -89,3 +89,70 @@ flowchart LR
   - **1 `HTTP 429: Daily API request limit exceeded`** at 20:10 UTC, after only a few hundred of our calls. Most likely the limit counts per IP, and Edge Functions share outgoing IPs with other projects. We can't control that. The page shows **Down** with the error, and the next run fixes it.
 - **Open-Meteo revises readings between its 15-min slots.** 32 runs saved changes while `current.time` stayed the same. That's about once per slot, at any minute, usually all 8 locations together. These are real changes from the source, so saving them is correct. It isn't a comparison bug: a bug would rewrite rows on every run, and runs with no change saved 0 rows.
 
+
+---
+
+# Second source: Divvy bikes ("Bike there?")
+
+Planned before any Divvy code, on branch `feature/divvy`. Each card answers one more question: can I bike there, and is there an open dock when I arrive?
+
+```mermaid
+flowchart LR
+    subgraph Source2["Divvy GBFS 2.3 (Lyft, no key)"]
+        GB["station_status.json<br/>2,079 stations, ~880 KB<br/>refreshes every 60 s (ttl)"]
+    end
+
+    subgraph Supabase
+        CRON2["Supabase Cron<br/>every minute"]
+        W2["Edge Function<br/><b>poll-divvy</b><br/>(Deno, secret key)"]
+        subgraph DB2["Postgres (RLS on every table)"]
+            ST[("stations<br/>13 docks, seeded")]
+            LS[("location_stations<br/>2 nearest docks per location")]
+            SS[("station_status<br/>1 row per dock")]
+            DR[("divvy_runs<br/>1 row per run")]
+        end
+        RT2["Realtime<br/>(publication: station_status, divvy_runs)"]
+    end
+
+    PAGE2["Next.js page<br/>Divvy section on each card"]
+
+    CRON2 -- "HTTP POST" --> W2
+    W2 -- "read our 13 station ids" --> ST
+    W2 -- "GET whole city" --> GB
+    GB -- "JSON: data.stations[]" --> W2
+    W2 -- "keep our 13, upsert ONLY changed" --> SS
+    W2 -- "insert: ran_at, ok, rows_changed, error" --> DR
+    SS -- "UPDATE events" --> RT2
+    DR -- "INSERT events" --> RT2
+    RT2 -- "websocket push" --> PAGE2
+    PAGE2 -- "initial load" --> LS
+```
+
+## Decisions and why
+
+| Decision | Why |
+|---|---|
+| **Its own worker** (`poll-divvy`) and its own Cron job | If Divvy is down, weather still says Fresh, and the reverse. Each source has its own freshness line. |
+| **Its own runs table** (`divvy_runs`), not a `source` column on `worker_runs` | The deployed page reads the latest `worker_runs` row as the weather clock. A Divvy run there would mislabel weather freshness on production while this branch is being built. |
+| **Every minute** | Matches the feed's 60 s `ttl`. About 43,200 calls/month, plus 21,600 for weather, out of 500,000. |
+| **Stations seeded by migration**, 2 nearest real docks per location | Docks rarely move, so the worker only needs `station_status` and never the 680 KB `station_information`. Leaves out the 848 "Public Rack" entries (plain racks that last reported in June 2025) and docks silent for over a week. Every location has a real dock within about 860 m; Columbus Park's nearest is 503 m away, past several racks. |
+| **Compare counts, not `last_reported`** | Docks report about every minute even when nothing changes. Comparing `last_reported` would rewrite all 13 rows every minute: 13 Realtime messages per open page per minute, enough to use up the free Realtime quota. The worker stores `is_reporting` instead (last report under 30 min old), which only flips when a dock actually goes offline. |
+| **Open docks shown first** | Biking *to* the course, the question is whether you can dock. Bikes and e-bikes come second, for the ride home. |
+
+## What would break if one part changed
+
+- **A dock is removed from the feed**: the worker skips it and logs it. If fewer than half our docks are found, the run fails, and the page shows Divvy as **Down** instead of showing blanks.
+- **GBFS 2.3 is retired** (Lyft also serves 1.1): the URL returns 404, every run is recorded as failed, and the Divvy line shows **Down**. Weather is unaffected.
+- **The feed stops updating** (`last_updated` frozen): the worker still succeeds, but the page compares `last_updated` with now and shows Divvy as **Stale** after 5 min.
+
+## Divvy freshness
+
+| State | Rule |
+|---|---|
+| Fresh | Last good run ≤ 3 min ago (3 missed runs) **and** feed `last_updated` ≤ 5 min old |
+| Stale | Either clock is older than that |
+| Down | The latest `divvy_runs` row failed |
+
+## First look at the feed (Nov 2, 10:25 PM Chicago)
+
+Two calls 193 s apart: **57 of 2,079** stations changed counts city-wide. Near our courses, one changed: DuSable Lake Shore Dr & Diversey went from 5 open docks to 4. The feed is live but quiet at night. Daytime will be much busier.
