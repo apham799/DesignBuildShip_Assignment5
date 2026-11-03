@@ -141,7 +141,8 @@ export function Dashboard() {
             <h2 id="following-title" className="text-heading">
               You follow {followed.length} {followed.length === 1 ? "place" : "places"}
             </h2>
-            <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {/* items-start: opening one card's Divvy section grows only that card, not its whole row. */}
+            <ul className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
               {followed.map((l) => (
                 <ConditionCard
                   key={l.id}
