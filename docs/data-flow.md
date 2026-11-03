@@ -9,7 +9,7 @@ flowchart LR
     end
 
     subgraph Supabase
-        CRON["Supabase Cron<br/>every 2 min"]
+        CRON["Supabase Cron<br/>every 2 min, odd minutes"]
         W["Edge Function<br/><b>poll-conditions</b><br/>(Deno, secret key)"]
         subgraph DB["Postgres (RLS on every table)"]
             LOC[("locations<br/>seeded by migration")]
@@ -81,3 +81,11 @@ flowchart LR
 - Open-Meteo free tier: 10,000 calls/day. It isn't documented whether one 8-location request counts as 8 calls, so assume it does. Every 2 min is 720 runs × 8 = **5,760/day**. Every 1 min would be 11,520/day, over the limit.
 - Supabase Edge Functions: 720 runs/day × 30 days = **21,600 of 500,000** monthly calls.
 - New readings appear about 15 s after each 15-min mark, so the page lags the source by at most about 2 min.
+
+## What the logs showed (first 8 hours, 242 runs)
+
+- **4 failed runs, all from Open-Meteo.** Each was recorded in `worker_runs`, and the next run recovered.
+  - **3 timeouts at exactly :00:10 past the hour** (21:00, 22:00, 00:00 UTC). Open-Meteo is slowest on the hour. The fix was to run on odd minutes (`1-59/2`) so the worker never polls at :00, and to raise its wait from 10 s to 20 s.
+  - **1 `HTTP 429: Daily API request limit exceeded`** at 20:10 UTC, after only a few hundred of our calls. Most likely the limit counts per IP, and Edge Functions share outgoing IPs with other projects. We can't control that. The page shows **Down** with the error, and the next run fixes it.
+- **Open-Meteo revises readings between its 15-min slots.** 32 runs saved changes while `current.time` stayed the same. That's about once per slot, at any minute, usually all 8 locations together. These are real changes from the source, so saving them is correct. It isn't a comparison bug: a bug would rewrite rows on every run, and runs with no change saved 0 rows.
+

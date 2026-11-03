@@ -146,7 +146,8 @@ export function changedRows(stored: ConditionRow[], incoming: ConditionRow[]): C
 }
 
 export const fetchJson: FetchJson = async (url) => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  // 20 s: Open-Meteo is slowest at the top of the hour (see *_schedule_worker_odd_minutes.sql).
+  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const reason = (body as Json | null)?.reason ?? res.statusText;
