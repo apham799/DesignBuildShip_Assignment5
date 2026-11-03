@@ -1,3 +1,4 @@
+import type React from "react";
 import { ago, type Freshness } from "@/lib/freshness";
 import type { NearbyStation, StationStatus } from "@/lib/types";
 import { cx, ErrorIcon, Skeleton } from "@/components/ui";
@@ -42,69 +43,118 @@ function describe(s: StationStatus): { headline: string; detail: string; tone: "
   return { headline: plural(s.docks, "open dock"), detail: bikes, tone: "ok" };
 }
 
+// "≈170 m" / "≈1.5 km", straight line.
+const distance = (m: number) => (m < 1000 ? `≈${Math.round(m / 10) * 10} m` : `≈${(m / 1000).toFixed(1)} km`);
+
+// Collapsed by default (a native <details>, so it works with the keyboard and screen
+// readers announce it as expandable). The summary line still carries the one thing
+// worth knowing at a glance, the nearest dock, and never hides a Divvy problem:
+// unavailable, down and stale show in the summary too.
 export function DivvySection({ locationName, nearby, status, justChanged, freshness, lastGoodRunAt, unavailable, now }: Props) {
-  const headingId = `divvy-${locationName.replace(/\W+/g, "-").toLowerCase()}`;
   if (!nearby.length) return null;
 
+  const nearest = nearby[0];
+  const nearestStatus = status[nearest.station.id];
+  const anyChanged = nearby.some((n) => justChanged.has(n.station.id));
+
+  let summary: React.ReactNode;
+  if (unavailable) {
+    summary = (
+      <span className="flex items-center gap-1.5 text-error">
+        <ErrorIcon className="size-4" />
+        unavailable right now
+      </span>
+    );
+  } else if (freshness.state === "down") {
+    summary = (
+      <span className="flex items-center gap-1.5 text-error">
+        <ErrorIcon className="size-4" />
+        updates are down
+      </span>
+    );
+  } else if (!nearestStatus) {
+    summary = <span className="text-muted">loading…</span>;
+  } else {
+    const d = describe(nearestStatus);
+    summary = (
+      <span className={cx(d.tone === "warn" ? "text-warning" : "text-muted")}>
+        nearest: <span className={cx("font-semibold", d.tone === "ok" && "text-ink")}>{d.headline.toLowerCase()}</span>, {distance(nearest.distance_m)}
+        {freshness.state === "stale" && <span className="text-warning"> · may be out of date</span>}
+      </span>
+    );
+  }
+
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2 border-t border-rule pt-4">
-      <h4 id={headingId} className="flex items-center gap-2 text-label text-muted">
+    <details className="group border-t border-rule pt-3">
+      <summary
+        className={cx(
+          "-mx-2 flex min-h-12 cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-2 py-1.5 text-label transition-colors hover:bg-cream [&::-webkit-details-marker]:hidden",
+          anyChanged && "bg-cream ring-2 ring-brass/60",
+        )}
+      >
+        <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-green transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 3.5 L10.5 8 L6 12.5" />
+        </svg>
         <DockIcon />
-        Bike there with Divvy
-      </h4>
+        <span className="font-semibold text-ink">
+          Bike there with Divvy<span className="sr-only"> to {locationName}</span>
+        </span>
+        <span aria-hidden className="text-muted">·</span>
+        {summary}
+        {anyChanged && <span className="text-muted">· just updated</span>}
+      </summary>
 
-      {unavailable ? (
-        <p className="flex items-center gap-2 text-body text-error">
-          <ErrorIcon className="size-4" />
-          Divvy counts are unavailable right now.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {nearby.map(({ station, distance_m }) => {
-            const s = status[station.id];
-            const d = s ? describe(s) : null;
-            return (
-              <li
-                key={station.id}
-                className={cx(
-                  "flex flex-col rounded-md px-2 py-1.5 transition-[box-shadow,background-color] duration-700",
-                  justChanged.has(station.id) && "bg-cream ring-2 ring-brass/60",
-                )}
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  {d ? (
-                    <span className={cx("text-body font-semibold", d.tone === "warn" && "text-warning", d.tone === "muted" && "text-muted")}>
-                      {d.headline}
-                    </span>
-                  ) : (
-                    <Skeleton className="h-5 w-28" />
+      <div className="flex flex-col gap-2 pt-2">
+        {unavailable ? (
+          <p className="text-body">Divvy counts couldn&apos;t be loaded. Weather above is unaffected.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {nearby.map(({ station, distance_m }) => {
+              const s = status[station.id];
+              const d = s ? describe(s) : null;
+              return (
+                <li
+                  key={station.id}
+                  className={cx(
+                    "flex flex-col rounded-md px-2 py-1.5 transition-[box-shadow,background-color] duration-700",
+                    justChanged.has(station.id) && "bg-cream ring-2 ring-brass/60",
                   )}
-                  <span className="shrink-0 text-label text-muted">
-                    ≈{distance_m < 1000 ? `${Math.round(distance_m / 10) * 10} m` : `${(distance_m / 1000).toFixed(1)} km`} · {walk(distance_m)}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    {d ? (
+                      <span className={cx("text-body font-semibold", d.tone === "warn" && "text-warning", d.tone === "muted" && "text-muted")}>
+                        {d.headline}
+                      </span>
+                    ) : (
+                      <Skeleton className="h-5 w-28" />
+                    )}
+                    <span className="shrink-0 text-label text-muted">
+                      {distance(distance_m)} · {walk(distance_m)}
+                    </span>
+                  </div>
+                  <span className="text-label text-muted">
+                    {station.name}
+                    {d ? ` · ${d.detail}` : ""}
+                    {s && justChanged.has(station.id) ? " · just updated" : ""}
                   </span>
-                </div>
-                <span className="text-label text-muted">
-                  {station.name}
-                  {d ? ` · ${d.detail}` : ""}
-                  {s && justChanged.has(station.id) ? " · just updated" : ""}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-      {!unavailable && freshness.state === "stale" && (
-        <p className="text-label text-warning">
-          Divvy counts may be out of date{lastGoodRunAt ? `: last checked ${ago(lastGoodRunAt, now)}` : ""}.
-        </p>
-      )}
-      {!unavailable && freshness.state === "down" && (
-        <p className="flex items-center gap-1.5 text-label text-error">
-          <ErrorIcon className="size-4" />
-          Divvy updates are down{lastGoodRunAt ? `; these counts are from ${ago(lastGoodRunAt, now)}` : ""}.
-        </p>
-      )}
-    </section>
+        {!unavailable && freshness.state === "stale" && (
+          <p className="text-label text-warning">
+            Divvy counts may be out of date{lastGoodRunAt ? `: last checked ${ago(lastGoodRunAt, now)}` : ""}.
+          </p>
+        )}
+        {!unavailable && freshness.state === "down" && (
+          <p className="flex items-center gap-1.5 text-label text-error">
+            <ErrorIcon className="size-4" />
+            Divvy updates are down{lastGoodRunAt ? `; these counts are from ${ago(lastGoodRunAt, now)}` : ""}.
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
