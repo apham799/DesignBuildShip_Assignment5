@@ -1,4 +1,6 @@
+import type React from "react";
 import { ago, clock, STALE_READING_MS } from "@/lib/freshness";
+import { DivvySection } from "@/components/divvy-section";
 import { verdict, type Level } from "@/lib/playability";
 import type { Condition, Location } from "@/lib/types";
 import { compass, compassWords, describeWeather } from "@/lib/weather";
@@ -29,9 +31,11 @@ type Props = {
   justChanged: boolean;
   now: number;
   onUnfollow: () => void;
+  // Divvy: everything the "Bike there" section needs, minus the location name.
+  divvy: Omit<React.ComponentProps<typeof DivvySection>, "locationName" | "now">;
 };
 
-export function ConditionCard({ location, condition: c, justChanged, now, onUnfollow }: Props) {
+export function ConditionCard({ location, condition: c, justChanged, now, onUnfollow, divvy }: Props) {
   const headingId = `loc-${location.id}`;
   const old = c ? now - Date.parse(c.observed_at) > STALE_READING_MS : false;
   const v = c ? verdict(c, location.kind, now) : null;
@@ -99,6 +103,8 @@ export function ConditionCard({ location, condition: c, justChanged, now, onUnfo
           </p>
         </>
       )}
+
+      <DivvySection locationName={location.name} now={now} {...divvy} />
     </Card>
   );
 }

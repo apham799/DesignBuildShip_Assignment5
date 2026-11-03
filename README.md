@@ -19,7 +19,8 @@ Open-Meteo ──every 2 min──▶ Worker ──only what changed──▶ Po
 2. **Worker**: `supabase/functions/poll-conditions`. Supabase Cron calls it every 2 minutes. It validates the response, compares it with what's stored, and upserts only the rows that differ. Every run adds a row to `worker_runs` (when it ran, whether it worked, how many rows changed), including failed runs.
 3. **Database**: `locations` (seeded), `conditions` (one row per location), `worker_runs`, and `follows`. RLS is on for every table, and follows are visible only to their owner.
 4. **Page**: subscribes to `conditions` and `worker_runs` over Supabase Realtime with the Clerk session token, so it updates without a refresh.
-5. **Guest trial**: signed out, the same live page runs with just the publishable key. Guests follow places in their browser tab, and signing up copies those follows into their account. Guests can read only the public weather tables; `follows` refuses them.
+5. **Second source: Divvy**: a second worker, `poll-divvy`, runs every minute. It reads the city-wide GBFS feed, keeps the 14 docks nearest our courses and ranges, and saves only docks whose counts changed, into `station_status`. Each card gets a "Bike there with Divvy" section: open docks first, then bikes and e-bikes. Divvy has its own runs table and its own status line, so if it fails, the weather keeps working.
+6. **Guest trial**: signed out, the same live page runs with just the publishable key. Guests follow places in their browser tab, and signing up copies those follows into their account. Guests can read only the public weather tables; `follows` refuses them.
 
 ## Freshness
 

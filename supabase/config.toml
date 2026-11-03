@@ -4,3 +4,7 @@
 # Cron calls the worker with the project's secret key, not a user's token, so the
 # platform's JWT check is off and withSupabase({ auth: "secret" }) checks the key instead.
 verify_jwt = false
+
+[functions.poll-divvy]
+# Same as poll-conditions: Cron sends the secret key, checked by withSupabase.
+verify_jwt = false

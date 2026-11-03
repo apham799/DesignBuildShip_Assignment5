@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { freshness, type FreshnessInput } from "./freshness.ts";
+import { DIVVY, freshness, type FreshnessInput } from "./freshness.ts";
 
 const NOW = Date.parse("2026-11-02T18:00:00Z");
 const minsAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
@@ -49,5 +49,26 @@ describe("freshness", () => {
 
   it("back to fresh as soon as the next run works", () => {
     assert.equal(freshness({ ...healthy, latestRun: { ran_at: minsAgo(0), ok: true }, lastGoodRunAt: minsAgo(0) }).state, "fresh");
+  });
+});
+
+describe("freshness for Divvy (tighter limits)", () => {
+  const divvy: FreshnessInput = { ...healthy, limits: DIVVY, readingAt: minsAgo(1) };
+
+  it("fresh: ran a minute ago, feed updated a minute ago", () => {
+    assert.equal(freshness(divvy).state, "fresh");
+  });
+
+  it("stale after 3 missed runs (4 min), which would still be fresh for weather", () => {
+    assert.deepEqual(freshness({ ...divvy, lastGoodRunAt: minsAgo(4) }), { state: "stale", reason: "worker-behind" });
+    assert.equal(freshness({ ...healthy, lastGoodRunAt: minsAgo(4) }).state, "fresh");
+  });
+
+  it("stale when the feed's last_updated stops moving for over 5 min", () => {
+    assert.deepEqual(freshness({ ...divvy, readingAt: minsAgo(6) }), { state: "stale", reason: "reading-old" });
+  });
+
+  it("down when the latest Divvy run failed", () => {
+    assert.equal(freshness({ ...divvy, latestRun: { ran_at: minsAgo(0), ok: false } }).state, "down");
   });
 });

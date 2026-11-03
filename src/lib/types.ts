@@ -32,3 +32,25 @@ export type WorkerRun = {
   error: string | null;
   duration_ms: number | null;
 };
+
+// Divvy (see supabase/migrations/*_divvy_tables.sql).
+
+export type Station = { id: string; name: string; capacity: number };
+
+// A dock near a location, nearest first.
+export type NearbyStation = { station: Station; distance_m: number; rank: number };
+
+export type StationStatus = {
+  station_id: string;
+  bikes: number;
+  ebikes: number;
+  docks: number;
+  is_renting: boolean;
+  is_returning: boolean;
+  is_reporting: boolean;
+  reported_at: string;
+  updated_at: string;
+};
+
+// Same shape as worker_runs; source_time is the feed's last_updated.
+export type DivvyRun = WorkerRun;

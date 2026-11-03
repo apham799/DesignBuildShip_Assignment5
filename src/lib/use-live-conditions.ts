@@ -4,7 +4,7 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { clearGuestFollows, clearImportedNotice, readGuestFollows, readImportedNotice, writeGuestFollows, writeImportedNotice } from "./guest-follows";
-import type { Condition, Location, WorkerRun } from "./types";
+import type { Condition, DivvyRun, Location, NearbyStation, Station, StationStatus, WorkerRun } from "./types";
 
 // Everything the dashboard shows, kept live, for guests and signed-in golfers.
 //
@@ -15,6 +15,9 @@ import type { Condition, Location, WorkerRun } from "./types";
 // Guest: the publishable key only (the anon role), which can read the public live
 // data and nothing else. Follows live in this tab (guest-follows.ts) and are copied
 // into the account on sign-in.
+//
+// Divvy rides along on the same channel (one socket per page), but loads on its
+// own: if its queries fail, weather still shows and only the Divvy section says so.
 //
 // Order matters: subscribe first, then load. Each time the channel (re)connects,
 // we load a fresh snapshot, so nothing that changed while we were disconnected
@@ -32,6 +35,14 @@ type LiveState = {
   lastGoodRun: WorkerRun | null;
   // Location ids that changed in the last few seconds, for a brief highlight.
   justChanged: Set<string>;
+  // Divvy: docks near each location, their live counts, and the Divvy worker clock.
+  nearby: Record<string, NearbyStation[]>;
+  stationStatus: Record<string, StationStatus>;
+  divvyLatestRun: DivvyRun | null;
+  divvyLastGoodRun: DivvyRun | null;
+  divvyError: string | null;
+  // Station ids that changed in the last few seconds.
+  justChangedStations: Set<string>;
 };
 
 const EMPTY: LiveState = {
@@ -43,9 +54,23 @@ const EMPTY: LiveState = {
   latestRun: null,
   lastGoodRun: null,
   justChanged: new Set(),
+  nearby: {},
+  stationStatus: {},
+  divvyLatestRun: null,
+  divvyLastGoodRun: null,
+  divvyError: null,
+  justChangedStations: new Set(),
 };
 
 const HIGHLIGHT_MS = 4000;
+
+const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+
+// One guest client for the life of the page. Creating a new one on every remount
+// (sign-out, hot reload) made supabase-js warn about multiple auth clients.
+let guestClient: SupabaseClient | null = null;
+const getGuestClient = () => (guestClient ??= createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } }));
 
 export function useLiveConditions() {
   const { isLoaded, userId } = useAuth();
@@ -65,24 +90,48 @@ export function useLiveConditions() {
   // One client per person (or one for guests), so nothing carries over after a
   // switch. Signed in, it asks Clerk for the current session token on every request
   // and Realtime heartbeat; Clerk refreshes the short-lived token itself.
-  const db: SupabaseClient = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
-    return userId
-      ? createClient(url, key, { accessToken: async () => (await clerk.session?.getToken()) ?? null })
-      : createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  }, [clerk, userId]);
+  const db: SupabaseClient = useMemo(
+    () => (userId ? createClient(URL_, KEY, { accessToken: async () => (await clerk.session?.getToken()) ?? null }) : getGuestClient()),
+    [clerk, userId],
+  );
 
-  const flash = useCallback((ids: string[]) => {
-    setState((s) => ({ ...s, justChanged: new Set([...s.justChanged, ...ids]) }));
+  // Highlight a changed card (or dock) briefly, then let it fade.
+  const flash = useCallback((key: "justChanged" | "justChangedStations", ids: string[]) => {
+    setState((s) => ({ ...s, [key]: new Set([...s[key], ...ids]) }));
     setTimeout(() => {
       setState((s) => {
-        const next = new Set(s.justChanged);
+        const next = new Set(s[key]);
         ids.forEach((id) => next.delete(id));
-        return { ...s, justChanged: next };
+        return { ...s, [key]: next };
       });
     }, HIGHLIGHT_MS);
   }, []);
+
+  const loadDivvy = useCallback(async () => {
+    const [links, status, latest, lastGood] = await Promise.all([
+      db.from("location_stations").select("location_id, distance_m, rank, stations(id, name, capacity)").order("rank"),
+      db.from("station_status").select("*"),
+      db.from("divvy_runs").select("*").order("ran_at", { ascending: false }).limit(1).maybeSingle(),
+      db.from("divvy_runs").select("*").eq("ok", true).order("ran_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const failed = links.error ?? status.error ?? latest.error ?? lastGood.error;
+    if (failed) {
+      setState((s) => ({ ...s, divvyError: failed.message }));
+      return;
+    }
+    const nearby: Record<string, NearbyStation[]> = {};
+    for (const l of links.data as unknown as { location_id: string; distance_m: number; rank: number; stations: Station }[]) {
+      (nearby[l.location_id] ??= []).push({ station: l.stations, distance_m: l.distance_m, rank: l.rank });
+    }
+    setState((s) => ({
+      ...s,
+      divvyError: null,
+      nearby,
+      stationStatus: Object.fromEntries((status.data as StationStatus[]).map((r) => [r.station_id, r])),
+      divvyLatestRun: latest.data as DivvyRun | null,
+      divvyLastGoodRun: lastGood.data as DivvyRun | null,
+    }));
+  }, [db]);
 
   // Signed in: first copy any follows made as a guest in this tab into the account.
   // Already-followed places are skipped, not duplicated. If the copy fails, the
@@ -102,6 +151,7 @@ export function useLiveConditions() {
   }, [db]);
 
   const load = useCallback(async () => {
+    loadDivvy();
     if (userId) {
       await importGuestFollows();
       setImported(readImportedNotice());
@@ -131,7 +181,7 @@ export function useLiveConditions() {
       latestRun: latest.data as WorkerRun | null,
       lastGoodRun: lastGood.data as WorkerRun | null,
     }));
-  }, [db, userId, importGuestFollows]);
+  }, [db, userId, importGuestFollows, loadDivvy]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -144,12 +194,24 @@ export function useLiveConditions() {
         const row = payload.new as Condition;
         if (!row?.location_id) return;
         setState((s) => ({ ...s, conditions: { ...s.conditions, [row.location_id]: row } }));
-        flash([row.location_id]);
+        flash("justChanged", [row.location_id]);
       })
       // The worker ran: this is the worker clock, and how the page learns it's down.
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "worker_runs" }, (payload) => {
         const run = payload.new as WorkerRun;
         setState((s) => ({ ...s, latestRun: run, lastGoodRun: run.ok ? run : s.lastGoodRun }));
+      })
+      // A dock's counts changed (poll-divvy only writes docks whose counts moved).
+      .on("postgres_changes", { event: "*", schema: "public", table: "station_status" }, (payload) => {
+        const row = payload.new as StationStatus;
+        if (!row?.station_id) return;
+        setState((s) => ({ ...s, stationStatus: { ...s.stationStatus, [row.station_id]: row } }));
+        flash("justChangedStations", [row.station_id]);
+      })
+      // The Divvy worker ran: its own clock, independent of the weather worker's.
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "divvy_runs" }, (payload) => {
+        const run = payload.new as DivvyRun;
+        setState((s) => ({ ...s, divvyLatestRun: run, divvyLastGoodRun: run.ok ? run : s.divvyLastGoodRun }));
       })
       .subscribe((s) => {
         if (cancelled) return;

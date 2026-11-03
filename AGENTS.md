@@ -10,6 +10,7 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 - **Supabase**: Postgres, Realtime, and the worker. It's connected to Clerk through third-party auth, and RLS is on for **every** table.
 - **Worker**: the Supabase Edge Function `poll-conditions` (Deno, TypeScript), in `supabase/functions/`. **Supabase Cron** calls it every 2 minutes.
 - **Source**: Open-Meteo `/v1/forecast?current=…`, no key, one batched request for all locations.
+- **Second source**: Divvy GBFS 2.3 `station_status.json` (Lyft, no key). Its own worker, **`poll-divvy`**, which Cron calls **every minute**. It has its own runs table, `divvy_runs`, so the two sources fail and recover separately.
 - Worker tests use Node's built-in test runner (`npm test`). No test framework is added.
 
 ## Hard constraints
@@ -38,6 +39,12 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 **`follows`**: what each person follows.
 `user_id text default (auth.jwt() ->> 'sub')`, `location_id → locations`, `created_at`, pk `(user_id, location_id)`. RLS: select, insert and delete only where `(select auth.jwt() ->> 'sub') = user_id`.
 
+**`stations`** / **`location_stations`**: Divvy reference data, seeded by migration. These are the 14 real docks nearest the locations, 2 per location; "Public Rack" entries are left out. Anyone can read them.
+
+**`station_status`**: the latest counts, one row per dock. Only `poll-divvy` writes it, and only when a count or flag changes. **Never compare `last_reported`**: docks report about every minute with nothing changed. Anyone can read it. It's in the Realtime publication.
+
+**`divvy_runs`**: one row per `poll-divvy` run, with the same shape as `worker_runs`. Kept separate on purpose: the page reads the latest `worker_runs` row as the weather clock.
+
 ## Realtime checklist (all three or the page silently gets nothing)
 1. The table is in the `supabase_realtime` publication.
 2. `grant select … to authenticated` (and `anon` for the public tables). Supabase's default privileges grant `authenticated` **everything** on new public tables, so `revoke all` first, then grant only what's needed (see `*_tighten_grants.sql`).
@@ -48,6 +55,7 @@ The data-flow chart, made before any code, is in `docs/data-flow.md`. Keep it in
 - **Fresh**: the last successful run was ≤ 6 min ago **and** the reading is ≤ 35 min old.
 - **Stale**: either clock is older than that. The page checks this on its own timer, so it goes stale even when no events arrive.
 - **Down**: the latest `worker_runs` row has `ok = false`.
+- **Divvy** uses the same rules with its own limits (`DIVVY` in `src/lib/freshness.ts`): stale after 3 min without a good run, or when the feed's `last_updated` is over 5 min old.
 
 ## Design rules (Clubhouse, carried over from A3/A4)
 - Page and card backgrounds are **white**. Cream and tan are accents only. Keep club green, brass and the soft drop shadows.
