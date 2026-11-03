@@ -3,13 +3,35 @@
 import { ConditionCard } from "@/components/condition-card";
 import { FollowPicker } from "@/components/follow-picker";
 import { FreshnessBanner } from "@/components/freshness-banner";
-import { Alert, Button, ButtonLink, Card, LoadingCard } from "@/components/ui";
-import { freshness } from "@/lib/freshness";
+import { Alert, Button, ButtonLink, Card, ErrorIcon, LoadingCard } from "@/components/ui";
+import { ago, DIVVY, freshness, type Freshness } from "@/lib/freshness";
 import { useLiveConditions, useNow } from "@/lib/use-live-conditions";
 
 // The page for everyone: how fresh things are, the places you follow (live), and
 // where to change what you follow. Guests get the same live page as a trial, with
 // their follows kept in this tab and a nudge to make an account to keep them.
+
+// One line for the second source, under the weather banner: Divvy has its own
+// worker and its own clock, so it's live, stale or down on its own.
+function DivvyStatus({ f, lastGoodRunAt, error, now }: { f: Freshness; lastGoodRunAt: string | null; error: string | null; now: number }) {
+  if (f.state === "loading") return null;
+  const checked = lastGoodRunAt ? `checked ${ago(lastGoodRunAt, now)}` : "not checked yet";
+  const [icon, text, tone] = error
+    ? [<ErrorIcon key="i" className="size-4 text-error" />, "unavailable right now", "text-error"]
+    : f.state === "down"
+      ? [<ErrorIcon key="i" className="size-4 text-error" />, `updates are down (last good check ${checked.replace("checked ", "")}). Retrying every minute.`, "text-error"]
+      : f.state === "stale"
+        ? [<span key="i" aria-hidden className="size-2.5 rounded-full bg-warning" />, `may be out of date, ${checked}`, "text-warning"]
+        : [<span key="i" aria-hidden className="size-2.5 rounded-full bg-success" />, `live, ${checked}`, "text-muted"];
+  return (
+    <p className={`-mt-4 flex items-center gap-2 px-1 text-label ${tone}`}>
+      {icon}
+      <span>
+        <span className="font-semibold text-ink">Divvy bikes:</span> {text}
+      </span>
+    </p>
+  );
+}
 
 function GuestNudge() {
   return (
@@ -54,6 +76,15 @@ export function Dashboard() {
     now,
   });
 
+  const divvyF = freshness({
+    loaded: live.loaded,
+    latestRun: live.divvyLatestRun,
+    lastGoodRunAt: live.divvyLastGoodRun?.ran_at ?? null,
+    readingAt: live.divvyLastGoodRun?.source_time ?? null,
+    now,
+    limits: DIVVY,
+  });
+
   if (live.loadError) {
     return (
       <Alert tone="error" title="Couldn't load live conditions" action={<Button onClick={live.retry}>Try again</Button>}>
@@ -74,6 +105,7 @@ export function Dashboard() {
       {live.guest && <GuestNudge />}
 
       <FreshnessBanner freshness={f} status={live.status} latestRun={live.latestRun} lastGoodRun={live.lastGoodRun} readingAt={readingAt} now={now} />
+      <DivvyStatus f={divvyF} lastGoodRunAt={live.divvyLastGoodRun?.ran_at ?? null} error={live.divvyError} now={now} />
 
       {live.followError && <Alert tone="error" title={live.followError} onDismiss={live.clearFollowError} />}
       {live.imported && (
@@ -118,6 +150,14 @@ export function Dashboard() {
                   justChanged={live.justChanged.has(l.id)}
                   now={now}
                   onUnfollow={() => live.toggleFollow(l.id)}
+                  divvy={{
+                    nearby: live.nearby[l.id] ?? [],
+                    status: live.stationStatus,
+                    justChanged: live.justChangedStations,
+                    freshness: divvyF,
+                    lastGoodRunAt: live.divvyLastGoodRun?.ran_at ?? null,
+                    unavailable: Boolean(live.divvyError),
+                  }}
                 />
               ))}
             </ul>
