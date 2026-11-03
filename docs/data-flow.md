@@ -106,7 +106,7 @@ flowchart LR
         CRON2["Supabase Cron<br/>every minute"]
         W2["Edge Function<br/><b>poll-divvy</b><br/>(Deno, secret key)"]
         subgraph DB2["Postgres (RLS on every table)"]
-            ST[("stations<br/>13 docks, seeded")]
+            ST[("stations<br/>14 docks, seeded")]
             LS[("location_stations<br/>2 nearest docks per location")]
             SS[("station_status<br/>1 row per dock")]
             DR[("divvy_runs<br/>1 row per run")]
@@ -117,10 +117,10 @@ flowchart LR
     PAGE2["Next.js page<br/>Divvy section on each card"]
 
     CRON2 -- "HTTP POST" --> W2
-    W2 -- "read our 13 station ids" --> ST
+    W2 -- "read our 14 station ids" --> ST
     W2 -- "GET whole city" --> GB
     GB -- "JSON: data.stations[]" --> W2
-    W2 -- "keep our 13, upsert ONLY changed" --> SS
+    W2 -- "keep our 14, upsert ONLY changed" --> SS
     W2 -- "insert: ran_at, ok, rows_changed, error" --> DR
     SS -- "UPDATE events" --> RT2
     DR -- "INSERT events" --> RT2
@@ -135,8 +135,8 @@ flowchart LR
 | **Its own worker** (`poll-divvy`) and its own Cron job | If Divvy is down, weather still says Fresh, and the reverse. Each source has its own freshness line. |
 | **Its own runs table** (`divvy_runs`), not a `source` column on `worker_runs` | The deployed page reads the latest `worker_runs` row as the weather clock. A Divvy run there would mislabel weather freshness on production while this branch is being built. |
 | **Every minute** | Matches the feed's 60 s `ttl`. About 43,200 calls/month, plus 21,600 for weather, out of 500,000. |
-| **Stations seeded by migration**, 2 nearest real docks per location | Docks rarely move, so the worker only needs `station_status` and never the 680 KB `station_information`. Leaves out the 848 "Public Rack" entries (plain racks that last reported in June 2025) and docks silent for over a week. Every location has a real dock within about 860 m; Columbus Park's nearest is 503 m away, past several racks. |
-| **Compare counts, not `last_reported`** | Docks report about every minute even when nothing changes. Comparing `last_reported` would rewrite all 13 rows every minute: 13 Realtime messages per open page per minute, enough to use up the free Realtime quota. The worker stores `is_reporting` instead (last report under 30 min old), which only flips when a dock actually goes offline. |
+| **Stations seeded by migration**, 2 nearest real docks per location (14 unique; some are shared) | Docks rarely move, so the worker only needs `station_status` and never the 680 KB `station_information`. Leaves out the 848 "Public Rack" entries (plain racks that last reported in June 2025) and docks silent for over a week. Every location has a real dock within about 860 m; Columbus Park's nearest is 503 m away, past several racks. |
+| **Compare counts, not `last_reported`** | Docks report about every minute even when nothing changes. Comparing `last_reported` would rewrite all 14 rows every minute: 14 Realtime messages per open page per minute, enough to use up the free Realtime quota. The worker stores `is_reporting` instead (last report under 30 min old), which only flips when a dock actually goes offline. |
 | **Open docks shown first** | Biking *to* the course, the question is whether you can dock. Bikes and e-bikes come second, for the ride home. |
 
 ## What would break if one part changed
